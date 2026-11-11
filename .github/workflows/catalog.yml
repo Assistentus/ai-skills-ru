@@ -1,0 +1,76 @@
+name: Каталог Skills
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - "scripts/**"
+      - "templates/**"
+      - "tests/**"
+      - "README.md"
+      - "requirements.txt"
+      - ".github/workflows/catalog.yml"
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - "scripts/**"
+      - "templates/**"
+      - "tests/**"
+      - "README.md"
+      - "requirements.txt"
+      - ".github/workflows/catalog.yml"
+
+permissions: {}
+
+concurrency:
+  group: catalog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Метаданные, тесты, актуальность README
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt
+      - name: Валидация метаданных Skills
+        run: python3 scripts/generate_catalog.py --validate
+      - name: Тесты генератора
+        run: python3 -m unittest discover -s tests -v
+      - name: Проверка актуальности каталога в README
+        run: python3 scripts/generate_catalog.py --check
+
+  sync:
+    name: Синхронизация README после изменений в main
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt
+      - name: Регенерация каталога
+        run: python3 scripts/generate_catalog.py
+      - name: Коммит при изменениях
+        run: |
+          if git diff --quiet README.md; then
+            echo "README актуален, коммит не требуется."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: синхронизация каталога Skills [skip ci]"
+          git push
