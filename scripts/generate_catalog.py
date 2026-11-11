@@ -54,6 +54,47 @@ class CatalogError(Exception):
     """Ошибка метаданных каталога с понятным сообщением."""
 
 
+def validate_skill_file(skill_dir: Path) -> None:
+    """Проверить, что SKILL.md соответствует стандарту Agent Skills для данного Skill."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.is_file():
+        raise CatalogError(f"{skill_dir.name}: в директории Skill отсутствует SKILL.md")
+
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CatalogError(f"{skill_dir.name}: нельзя прочитать SKILL.md — {exc}") from exc
+
+    if not text.startswith("---"):
+        raise CatalogError(f"{skill_dir.name}: SKILL.md должен начинаться с YAML frontmatter '---'")
+
+    split_index = text.find("\n---\n", 4)
+    if split_index == -1:
+        raise CatalogError(f"{skill_dir.name}: SKILL.md должен содержать закрывающий '---' после frontmatter")
+
+    frontmatter_text = text[4:split_index]
+    try:
+        frontmatter = yaml.safe_load(frontmatter_text)
+    except yaml.YAMLError as exc:
+        raise CatalogError(f"{skill_dir.name}: некорректный YAML frontmatter в SKILL.md — {exc}") from exc
+
+    if not isinstance(frontmatter, dict):
+        raise CatalogError(f"{skill_dir.name}: YAML frontmatter в SKILL.md должен быть словарём")
+
+    name_value = frontmatter.get("name")
+    if not isinstance(name_value, str) or not name_value.strip():
+        raise CatalogError(f"{skill_dir.name}: в SKILL.md отсутствует корректное поле 'name'")
+    if name_value != skill_dir.name:
+        raise CatalogError(
+            f"{skill_dir.name}: поле 'name' в SKILL.md должно совпадать с именем директории "
+            f"({skill_dir.name}), получено '{name_value}'"
+        )
+
+    description_value = frontmatter.get("description")
+    if not isinstance(description_value, str) or not description_value.strip():
+        raise CatalogError(f"{skill_dir.name}: в SKILL.md отсутствует корректное поле 'description'")
+
+
 def _load(data: dict[str, Any], path: Path) -> None:
     """Загрузчик по умолчанию (вынесен для подмены в тестах)."""
     with path.open(encoding="utf-8") as f:
@@ -78,6 +119,7 @@ def load_catalog_data(root: Path, load=_load) -> list[dict[str, Any]]:
             raise CatalogError(
                 f"{name}: в директории Skill нет SKILL.md — это не валидный Skill"
             )
+        validate_skill_file(skill_dir)
         catalog_path = skill_dir / "catalog.yml"
         if not catalog_path.is_file():
             raise CatalogError(
